@@ -162,6 +162,22 @@
       "Resource": "*"
     },
     {
+      "Sid": "ServiceLinkedRoles",
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "iam:AWSServiceName": [
+            "elasticache.amazonaws.com",
+            "rds.amazonaws.com",
+            "ecs.amazonaws.com",
+            "elasticloadbalancing.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
       "Sid": "ElastiCache",
       "Effect": "Allow",
       "Action": [

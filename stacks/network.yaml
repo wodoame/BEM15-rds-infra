@@ -455,7 +455,8 @@ Resources:
         - !Ref VpcEndpointSecurityGroup
       PrivateDnsEnabled: true
 
-  # DB subnets included so the RDS Proxy can retrieve credentials at startup.
+  # Private DNS resolves this endpoint VPC-wide, so DB-subnet ENIs reach it
+  # through the ECS-subnet interface — no need for a second subnet per AZ.
   SecretsManagerEndpoint:
     Type: AWS::EC2::VPCEndpoint
     Properties:
@@ -465,8 +466,6 @@ Resources:
       SubnetIds:
         - !Ref PrivateSubnet1
         - !Ref PrivateSubnet2
-        - !Ref DBSubnet1
-        - !Ref DBSubnet2
       SecurityGroupIds:
         - !Ref VpcEndpointSecurityGroup
       PrivateDnsEnabled: true

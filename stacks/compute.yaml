@@ -173,7 +173,7 @@ Resources:
       TaskRoleArn: !Ref ECSTaskRoleArn
       ContainerDefinitions:
         - Name: todo-app
-          Image: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/bem15-bootstrap:latest'
+          Image: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/bem15-todo-bootstrap:latest'
           PortMappings:
             - ContainerPort: 80
               Protocol: tcp
