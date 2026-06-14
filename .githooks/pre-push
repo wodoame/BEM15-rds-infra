@@ -1,0 +1,6 @@
+#!/bin/bash
+set -e
+
+echo "Syncing child stack templates to S3..."
+aws s3 sync stacks/ s3://bem15-rds-infra-stacks/stacks/ --profile admin
+echo "Sync complete."

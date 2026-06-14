@@ -1,0 +1,231 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  CI/CD stack - S3 artifact bucket, CodeDeploy blue/green application and
+  deployment group, CodePipeline (ECR image source + S3 deploy bundle source),
+  and an EventBridge rule that triggers the pipeline on every successful ECR
+  image push.
+
+Parameters:
+  Environment:
+    Type: String
+
+  ECRRepositoryName:
+    Type: String
+    Description: ECR repository name (used as the pipeline ECR source)
+
+  ClusterName:
+    Type: String
+
+  ServiceName:
+    Type: String
+
+  BlueTargetGroupName:
+    Type: String
+
+  GreenTargetGroupName:
+    Type: String
+
+  ProductionListenerArn:
+    Type: String
+
+  CodeDeployRoleArn:
+    Type: String
+
+  CodePipelineRoleArn:
+    Type: String
+
+  EventBridgeRoleArn:
+    Type: String
+
+  GitHubActionsRoleArn:
+    Type: String
+    Description: GitHub Actions IAM role that uploads the deploy bundle to the artifact bucket
+
+Resources:
+
+  # ── Artifact Bucket ───────────────────────────────────────────────────────────
+
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireOldArtifacts
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-todo-app-artifacts'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  ArtifactBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ArtifactBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowGitHubActionsUpload
+            Effect: Allow
+            Principal:
+              AWS: !Ref GitHubActionsRoleArn
+            Action:
+              - s3:PutObject
+              - s3:GetObject
+              - s3:GetBucketLocation
+            Resource:
+              - !GetAtt ArtifactBucket.Arn
+              - !Sub '${ArtifactBucket.Arn}/*'
+
+  # ── CodeDeploy ────────────────────────────────────────────────────────────────
+
+  CodeDeployApp:
+    Type: AWS::CodeDeploy::Application
+    Properties:
+      ApplicationName: !Sub '${Environment}-todo-app'
+      ComputePlatform: ECS
+
+  DeploymentGroup:
+    Type: AWS::CodeDeploy::DeploymentGroup
+    Properties:
+      ApplicationName: !Ref CodeDeployApp
+      DeploymentGroupName: !Sub '${Environment}-todo-app-dg'
+      ServiceRoleArn: !Ref CodeDeployRoleArn
+      DeploymentConfigName: CodeDeployDefault.ECSAllAtOnce
+      DeploymentStyle:
+        DeploymentType: BLUE_GREEN
+        DeploymentOption: WITH_TRAFFIC_CONTROL
+      BlueGreenDeploymentConfiguration:
+        TerminateBlueInstancesOnDeploymentSuccess:
+          Action: TERMINATE
+          TerminationWaitTimeInMinutes: 5
+        DeploymentReadyOption:
+          ActionOnTimeout: CONTINUE_DEPLOYMENT
+      ECSServices:
+        - ClusterName: !Ref ClusterName
+          ServiceName: !Ref ServiceName
+      LoadBalancerInfo:
+        TargetGroupPairInfoList:
+          - TargetGroups:
+              - Name: !Ref BlueTargetGroupName
+              - Name: !Ref GreenTargetGroupName
+            ProdTrafficRoute:
+              ListenerArns:
+                - !Ref ProductionListenerArn
+
+  # ── CodePipeline ──────────────────────────────────────────────────────────────
+
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub '${Environment}-todo-app-pipeline'
+      RoleArn: !Ref CodePipelineRoleArn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: ECRSource
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: ECR
+                Version: '1'
+              Configuration:
+                RepositoryName: !Ref ECRRepositoryName
+                ImageTag: latest
+              OutputArtifacts:
+                - Name: ImageDetails
+              RunOrder: 1
+            - Name: S3Source
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: S3
+                Version: '1'
+              Configuration:
+                S3Bucket: !Ref ArtifactBucket
+                S3ObjectKey: deploy/deploy-bundle.zip
+                PollForSourceChanges: false
+              OutputArtifacts:
+                - Name: DeployBundle
+              RunOrder: 1
+        - Name: Deploy
+          Actions:
+            - Name: BlueGreenDeploy
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CodeDeployToECS
+                Version: '1'
+              Configuration:
+                ApplicationName: !Ref CodeDeployApp
+                DeploymentGroupName: !Ref DeploymentGroup
+                TaskDefinitionTemplateArtifact: DeployBundle
+                TaskDefinitionTemplatePath: taskdef.json
+                AppSpecTemplateArtifact: DeployBundle
+                AppSpecTemplatePath: appspec.yaml
+                Image1ArtifactName: ImageDetails
+                Image1ContainerName: IMAGE1_NAME
+              InputArtifacts:
+                - Name: ImageDetails
+                - Name: DeployBundle
+              RunOrder: 1
+
+  # ── EventBridge Rule ──────────────────────────────────────────────────────────
+
+  ECRPushRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${Environment}-todo-app-ecr-push'
+      Description: Trigger CodePipeline on successful ECR image push
+      EventPattern:
+        source:
+          - aws.ecr
+        detail-type:
+          - ECR Image Action
+        detail:
+          action-type:
+            - PUSH
+          result:
+            - SUCCESS
+          repository-name:
+            - !Ref ECRRepositoryName
+          image-tag:
+            - latest
+      State: ENABLED
+      Targets:
+        - Id: TriggerPipeline
+          Arn: !Sub 'arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${Pipeline}'
+          RoleArn: !Ref EventBridgeRoleArn
+
+Outputs:
+
+  PipelineName:
+    Value: !Ref Pipeline
+
+  ArtifactBucketName:
+    Description: Upload deploy/deploy-bundle.zip here from the app repo CI
+    Value: !Ref ArtifactBucket
+
+  CodeDeployAppName:
+    Value: !Ref CodeDeployApp
+
+  DeploymentGroupName:
+    Value: !Ref DeploymentGroup

@@ -1,0 +1,66 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Cache stack - ElastiCache Redis cluster in dedicated private subnets.
+  Used by ECS tasks to accelerate read-heavy todo list queries.
+
+Parameters:
+  Environment:
+    Type: String
+
+  CacheSubnet1Id:
+    Type: AWS::EC2::Subnet::Id
+
+  CacheSubnet2Id:
+    Type: AWS::EC2::Subnet::Id
+
+  ElastiCacheSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+
+  CacheNodeType:
+    Type: String
+    Default: cache.t3.micro
+
+Resources:
+
+  CacheSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      Description: Private cache subnets for todo-app Redis
+      SubnetIds:
+        - !Ref CacheSubnet1Id
+        - !Ref CacheSubnet2Id
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-todo-app-cache-subnet-group'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  RedisCluster:
+    Type: AWS::ElastiCache::CacheCluster
+    Properties:
+      ClusterName: !Sub '${Environment}-todo-redis'
+      Engine: redis
+      CacheNodeType: !Ref CacheNodeType
+      NumCacheNodes: 1
+      CacheSubnetGroupName: !Ref CacheSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref ElastiCacheSecurityGroupId
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-todo-redis'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: ManagedBy
+          Value: CloudFormation
+
+Outputs:
+
+  RedisEndpoint:
+    Description: Redis cluster endpoint address
+    Value: !GetAtt RedisCluster.RedisEndpoint.Address
+
+  RedisPort:
+    Description: Redis cluster port
+    Value: !GetAtt RedisCluster.RedisEndpoint.Port

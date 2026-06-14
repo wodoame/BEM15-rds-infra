@@ -1,0 +1,271 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Compute stack - ECS cluster, ALB with blue/green target groups and listeners,
+  ECS task definition, and ECS service using the CODE_DEPLOY deployment
+  controller. Blue/green swaps are managed entirely by CodeDeploy after the
+  initial service creation.
+
+Parameters:
+  Environment:
+    Type: String
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+
+  PublicSubnet1Id:
+    Type: AWS::EC2::Subnet::Id
+
+  PublicSubnet2Id:
+    Type: AWS::EC2::Subnet::Id
+
+  PrivateSubnet1Id:
+    Type: AWS::EC2::Subnet::Id
+
+  PrivateSubnet2Id:
+    Type: AWS::EC2::Subnet::Id
+
+  ALBSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+
+  ECSSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+
+  ECRRepositoryUri:
+    Type: String
+
+  RDSProxyEndpoint:
+    Type: String
+
+  DBPort:
+    Type: String
+
+  DBName:
+    Type: String
+
+  DBSecretArn:
+    Type: String
+
+  RedisEndpoint:
+    Type: String
+
+  RedisPort:
+    Type: String
+
+  ECSTaskExecutionRoleArn:
+    Type: String
+
+  ECSTaskRoleArn:
+    Type: String
+
+Resources:
+
+  # ── ECS Cluster ───────────────────────────────────────────────────────────────
+
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub '${Environment}-todo-app-cluster'
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-todo-app-cluster'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/ecs/${Environment}-todo-app'
+      RetentionInDays: 30
+
+  # ── Application Load Balancer ─────────────────────────────────────────────────
+
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub '${Environment}-todo-alb'
+      Scheme: internet-facing
+      Type: application
+      Subnets:
+        - !Ref PublicSubnet1Id
+        - !Ref PublicSubnet2Id
+      SecurityGroups:
+        - !Ref ALBSecurityGroupId
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-todo-alb'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  BlueTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub '${Environment}-blue-tg'
+      VpcId: !Ref VpcId
+      Protocol: HTTP
+      Port: 80
+      TargetType: ip
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /health
+      HealthCheckPort: traffic-port
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-blue-tg'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  GreenTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub '${Environment}-green-tg'
+      VpcId: !Ref VpcId
+      Protocol: HTTP
+      Port: 80
+      TargetType: ip
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /health
+      HealthCheckPort: traffic-port
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-green-tg'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  ProductionListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ALB
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref BlueTargetGroup
+
+  # ── ECS Task Definition ───────────────────────────────────────────────────────
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub '${Environment}-todo-app'
+      Cpu: '256'
+      Memory: '512'
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      ExecutionRoleArn: !Ref ECSTaskExecutionRoleArn
+      TaskRoleArn: !Ref ECSTaskRoleArn
+      ContainerDefinitions:
+        - Name: todo-app
+          Image: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/bem15-bootstrap:latest'
+          PortMappings:
+            - ContainerPort: 80
+              Protocol: tcp
+          Environment:
+            - Name: DB_HOST
+              Value: !Ref RDSProxyEndpoint
+            - Name: DB_PORT
+              Value: !Ref DBPort
+            - Name: DB_NAME
+              Value: !Ref DBName
+            - Name: REDIS_HOST
+              Value: !Ref RedisEndpoint
+            - Name: REDIS_PORT
+              Value: !Ref RedisPort
+          Secrets:
+            - Name: DB_USERNAME
+              ValueFrom: !Sub '${DBSecretArn}:username::'
+            - Name: DB_PASSWORD
+              ValueFrom: !Sub '${DBSecretArn}:password::'
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+          Essential: true
+
+  # ── ECS Service ───────────────────────────────────────────────────────────────
+
+  ECSService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - ProductionListener
+    Properties:
+      ServiceName: !Sub '${Environment}-todo-app-svc'
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      HealthCheckGracePeriodSeconds: 120
+      DeploymentController:
+        Type: CODE_DEPLOY
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          SecurityGroups:
+            - !Ref ECSSecurityGroupId
+          Subnets:
+            - !Ref PrivateSubnet1Id
+            - !Ref PrivateSubnet2Id
+          AssignPublicIp: DISABLED
+      LoadBalancers:
+        - ContainerName: todo-app
+          ContainerPort: 80
+          TargetGroupArn: !Ref BlueTargetGroup
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: ManagedBy
+          Value: CloudFormation
+
+Outputs:
+
+  ClusterName:
+    Value: !Ref ECSCluster
+
+  ClusterArn:
+    Value: !GetAtt ECSCluster.Arn
+
+  ServiceName:
+    Value: !GetAtt ECSService.Name
+
+  ALBDnsName:
+    Description: ALB DNS name for accessing the application
+    Value: !GetAtt ALB.DNSName
+
+  ALBArn:
+    Value: !Ref ALB
+
+  BlueTargetGroupArn:
+    Value: !Ref BlueTargetGroup
+
+  GreenTargetGroupArn:
+    Value: !Ref GreenTargetGroup
+
+  BlueTargetGroupName:
+    Value: !GetAtt BlueTargetGroup.TargetGroupName
+
+  GreenTargetGroupName:
+    Value: !GetAtt GreenTargetGroup.TargetGroupName
+
+  ProductionListenerArn:
+    Value: !Ref ProductionListener
+
+  TaskDefinitionArn:
+    Value: !Ref TaskDefinition

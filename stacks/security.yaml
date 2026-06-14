@@ -1,0 +1,138 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Security stack - dedicated security groups for ALB, ECS tasks, RDS Proxy,
+  RDS instance, and ElastiCache. Traffic flows ALB → ECS → RDS Proxy → RDS
+  and ECS → ElastiCache. Each resource has its own security group following
+  least-privilege principles.
+
+Parameters:
+  Environment:
+    Type: String
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+
+Resources:
+
+  # ── ALB Security Group ────────────────────────────────────────────────────────
+
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow inbound HTTP from internet to ALB
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP production traffic
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-alb-sg'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # ── ECS Security Group ────────────────────────────────────────────────────────
+
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow inbound from ALB to ECS tasks
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+          Description: Traffic from ALB
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-ecs-sg'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # ── RDS Proxy Security Group ──────────────────────────────────────────────────
+
+  RDSProxySecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow inbound PostgreSQL from ECS tasks to RDS Proxy
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref ECSSecurityGroup
+          Description: PostgreSQL from ECS tasks
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-rds-proxy-sg'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # ── RDS Security Group ────────────────────────────────────────────────────────
+  # Only the RDS Proxy may connect directly to the RDS instance.
+
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow inbound PostgreSQL from RDS Proxy only
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref RDSProxySecurityGroup
+          Description: PostgreSQL from RDS Proxy
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-rds-sg'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # ── ElastiCache Security Group ────────────────────────────────────────────────
+
+  ElastiCacheSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow inbound Redis from ECS tasks
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          SourceSecurityGroupId: !Ref ECSSecurityGroup
+          Description: Redis from ECS tasks
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-elasticache-sg'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: ManagedBy
+          Value: CloudFormation
+
+Outputs:
+
+  ALBSecurityGroupId:
+    Value: !Ref ALBSecurityGroup
+
+  ECSSecurityGroupId:
+    Value: !Ref ECSSecurityGroup
+
+  RDSProxySecurityGroupId:
+    Value: !Ref RDSProxySecurityGroup
+
+  RDSSecurityGroupId:
+    Value: !Ref RDSSecurityGroup
+
+  ElastiCacheSecurityGroupId:
+    Value: !Ref ElastiCacheSecurityGroup

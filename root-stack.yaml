@@ -1,0 +1,226 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  BEM15 Todo App - Root stack. Orchestrates all nested child stacks.
+  Child templates must be uploaded to TemplatesBucketName before deploying.
+
+Parameters:
+  GithubOrg:
+    Type: String
+    Description: GitHub organisation or username that owns the app repository
+
+  GithubAppRepo:
+    Type: String
+    Description: Name of the GitHub application repository (code + CI/CD)
+
+  Environment:
+    Type: String
+    Default: production
+    AllowedValues: [production, staging, dev]
+
+  TemplatesBucketName:
+    Type: String
+    Description: S3 bucket that hosts the child stack templates under a stacks/ prefix
+
+  DBName:
+    Type: String
+    Default: tododb
+
+  DBUsername:
+    Type: String
+    Default: dbadmin
+
+Resources:
+
+  NetworkStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://s3.amazonaws.com/${TemplatesBucketName}/stacks/network.yaml'
+      Parameters:
+        Environment: !Ref Environment
+      Tags:
+        - Key: Project
+          Value: bem15-todo-app
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Environment
+          Value: !Ref Environment
+
+  SecurityStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://s3.amazonaws.com/${TemplatesBucketName}/stacks/security.yaml'
+      Parameters:
+        Environment: !Ref Environment
+        VpcId: !GetAtt NetworkStack.Outputs.VpcId
+      Tags:
+        - Key: Project
+          Value: bem15-todo-app
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Environment
+          Value: !Ref Environment
+
+  ECRStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://s3.amazonaws.com/${TemplatesBucketName}/stacks/ecr.yaml'
+      Parameters:
+        Environment: !Ref Environment
+      Tags:
+        - Key: Project
+          Value: bem15-todo-app
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Environment
+          Value: !Ref Environment
+
+  DatabaseStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://s3.amazonaws.com/${TemplatesBucketName}/stacks/database.yaml'
+      Parameters:
+        Environment: !Ref Environment
+        DBSubnet1Id: !GetAtt NetworkStack.Outputs.DBSubnet1Id
+        DBSubnet2Id: !GetAtt NetworkStack.Outputs.DBSubnet2Id
+        RDSProxySecurityGroupId: !GetAtt SecurityStack.Outputs.RDSProxySecurityGroupId
+        RDSSecurityGroupId: !GetAtt SecurityStack.Outputs.RDSSecurityGroupId
+        DBName: !Ref DBName
+        DBUsername: !Ref DBUsername
+      Tags:
+        - Key: Project
+          Value: bem15-todo-app
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Environment
+          Value: !Ref Environment
+
+  CacheStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://s3.amazonaws.com/${TemplatesBucketName}/stacks/cache.yaml'
+      Parameters:
+        Environment: !Ref Environment
+        CacheSubnet1Id: !GetAtt NetworkStack.Outputs.CacheSubnet1Id
+        CacheSubnet2Id: !GetAtt NetworkStack.Outputs.CacheSubnet2Id
+        ElastiCacheSecurityGroupId: !GetAtt SecurityStack.Outputs.ElastiCacheSecurityGroupId
+      Tags:
+        - Key: Project
+          Value: bem15-todo-app
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Environment
+          Value: !Ref Environment
+
+  IAMStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://s3.amazonaws.com/${TemplatesBucketName}/stacks/iam.yaml'
+      Parameters:
+        Environment: !Ref Environment
+        GithubOrg: !Ref GithubOrg
+        GithubAppRepo: !Ref GithubAppRepo
+        ECRRepositoryArn: !GetAtt ECRStack.Outputs.RepositoryArn
+        DBSecretArn: !GetAtt DatabaseStack.Outputs.DBSecretArn
+      Tags:
+        - Key: Project
+          Value: bem15-todo-app
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Environment
+          Value: !Ref Environment
+
+  ComputeStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://s3.amazonaws.com/${TemplatesBucketName}/stacks/compute.yaml'
+      Parameters:
+        Environment: !Ref Environment
+        VpcId: !GetAtt NetworkStack.Outputs.VpcId
+        PublicSubnet1Id: !GetAtt NetworkStack.Outputs.PublicSubnet1Id
+        PublicSubnet2Id: !GetAtt NetworkStack.Outputs.PublicSubnet2Id
+        PrivateSubnet1Id: !GetAtt NetworkStack.Outputs.PrivateSubnet1Id
+        PrivateSubnet2Id: !GetAtt NetworkStack.Outputs.PrivateSubnet2Id
+        ALBSecurityGroupId: !GetAtt SecurityStack.Outputs.ALBSecurityGroupId
+        ECSSecurityGroupId: !GetAtt SecurityStack.Outputs.ECSSecurityGroupId
+        ECRRepositoryUri: !GetAtt ECRStack.Outputs.RepositoryUri
+        RDSProxyEndpoint: !GetAtt DatabaseStack.Outputs.ProxyEndpoint
+        DBPort: !GetAtt DatabaseStack.Outputs.DBPort
+        DBName: !GetAtt DatabaseStack.Outputs.DBName
+        DBSecretArn: !GetAtt DatabaseStack.Outputs.DBSecretArn
+        RedisEndpoint: !GetAtt CacheStack.Outputs.RedisEndpoint
+        RedisPort: !GetAtt CacheStack.Outputs.RedisPort
+        ECSTaskExecutionRoleArn: !GetAtt IAMStack.Outputs.ECSTaskExecutionRoleArn
+        ECSTaskRoleArn: !GetAtt IAMStack.Outputs.ECSTaskRoleArn
+      Tags:
+        - Key: Project
+          Value: bem15-todo-app
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Environment
+          Value: !Ref Environment
+
+  AutoScalingStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://s3.amazonaws.com/${TemplatesBucketName}/stacks/autoscaling.yaml'
+      Parameters:
+        Environment: !Ref Environment
+        ClusterName: !GetAtt ComputeStack.Outputs.ClusterName
+        ServiceName: !GetAtt ComputeStack.Outputs.ServiceName
+      Tags:
+        - Key: Project
+          Value: bem15-todo-app
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Environment
+          Value: !Ref Environment
+
+  CICDStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://s3.amazonaws.com/${TemplatesBucketName}/stacks/cicd.yaml'
+      Parameters:
+        Environment: !Ref Environment
+        ECRRepositoryName: !GetAtt ECRStack.Outputs.RepositoryName
+        ClusterName: !GetAtt ComputeStack.Outputs.ClusterName
+        ServiceName: !GetAtt ComputeStack.Outputs.ServiceName
+        BlueTargetGroupName: !GetAtt ComputeStack.Outputs.BlueTargetGroupName
+        GreenTargetGroupName: !GetAtt ComputeStack.Outputs.GreenTargetGroupName
+        ProductionListenerArn: !GetAtt ComputeStack.Outputs.ProductionListenerArn
+        CodeDeployRoleArn: !GetAtt IAMStack.Outputs.CodeDeployRoleArn
+        CodePipelineRoleArn: !GetAtt IAMStack.Outputs.CodePipelineRoleArn
+        EventBridgeRoleArn: !GetAtt IAMStack.Outputs.EventBridgeRoleArn
+        GitHubActionsRoleArn: !GetAtt IAMStack.Outputs.GitHubActionsRoleArn
+      Tags:
+        - Key: Project
+          Value: bem15-todo-app
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+
+  ALBDnsName:
+    Description: Application Load Balancer DNS name
+    Value: !GetAtt ComputeStack.Outputs.ALBDnsName
+
+  ArtifactBucketName:
+    Description: S3 bucket for CI/CD artifacts and deploy bundle
+    Value: !GetAtt CICDStack.Outputs.ArtifactBucketName
+
+  ECRRepositoryUri:
+    Description: ECR repository URI for pushing application images
+    Value: !GetAtt ECRStack.Outputs.RepositoryUri
+
+  PipelineName:
+    Description: CodePipeline name
+    Value: !GetAtt CICDStack.Outputs.PipelineName
+
+  RDSProxyEndpoint:
+    Description: RDS Proxy endpoint used by ECS tasks
+    Value: !GetAtt DatabaseStack.Outputs.ProxyEndpoint
+
+  RedisEndpoint:
+    Description: ElastiCache Redis endpoint used by ECS tasks
+    Value: !GetAtt CacheStack.Outputs.RedisEndpoint
