@@ -3,7 +3,7 @@ Description: >
   Network stack - VPC, public/private subnets across 2 AZs (three tiers of
   private subnets: ECS, RDS/Proxy, ElastiCache), Internet Gateway, route tables,
   and VPC endpoints (S3 gateway + Interface endpoints for ECR, CloudWatch Logs,
-  ECS, and Secrets Manager). No NAT Gateway - ECS tasks reach AWS services
+  ECS agent/telemetry, and Secrets Manager). No NAT Gateway - ECS tasks reach AWS services
   exclusively via PrivateLink endpoints.
 
 Parameters:
@@ -377,6 +377,8 @@ Resources:
         - !Ref DBRouteTable1
         - !Ref DBRouteTable2
 
+  # Allows Fargate tasks to call ECR control-plane APIs (DescribeRepositories,
+  # GetAuthorizationToken, etc.) needed before pulling an image.
   ECRApiEndpoint:
     Type: AWS::EC2::VPCEndpoint
     Properties:
@@ -390,6 +392,8 @@ Resources:
         - !Ref VpcEndpointSecurityGroup
       PrivateDnsEnabled: true
 
+  # Carries the actual Docker layer downloads when Fargate pulls an image from ECR.
+  # Works alongside ECRApiEndpoint — both are required for a successful image pull.
   ECRDkrEndpoint:
     Type: AWS::EC2::VPCEndpoint
     Properties:
@@ -403,6 +407,8 @@ Resources:
         - !Ref VpcEndpointSecurityGroup
       PrivateDnsEnabled: true
 
+  # Lets Fargate tasks ship container logs to CloudWatch Logs (stdout/stderr via
+  # the awslogs driver) without a public route.
   CloudWatchLogsEndpoint:
     Type: AWS::EC2::VPCEndpoint
     Properties:
@@ -416,19 +422,8 @@ Resources:
         - !Ref VpcEndpointSecurityGroup
       PrivateDnsEnabled: true
 
-  ECSEndpoint:
-    Type: AWS::EC2::VPCEndpoint
-    Properties:
-      VpcId: !Ref VPC
-      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ecs'
-      VpcEndpointType: Interface
-      SubnetIds:
-        - !Ref PrivateSubnet1
-        - !Ref PrivateSubnet2
-      SecurityGroupIds:
-        - !Ref VpcEndpointSecurityGroup
-      PrivateDnsEnabled: true
-
+# Carries heartbeats and task lifecycle signals between the ECS agent running
+  # inside each Fargate task and the ECS control plane.
   ECSAgentEndpoint:
     Type: AWS::EC2::VPCEndpoint
     Properties:
@@ -442,6 +437,8 @@ Resources:
         - !Ref VpcEndpointSecurityGroup
       PrivateDnsEnabled: true
 
+  # Streams CPU and memory utilization metrics from Fargate tasks to CloudWatch.
+  # Removing this endpoint silences the metrics that drive the auto scaling policies.
   ECSTelemetryEndpoint:
     Type: AWS::EC2::VPCEndpoint
     Properties:
@@ -455,8 +452,9 @@ Resources:
         - !Ref VpcEndpointSecurityGroup
       PrivateDnsEnabled: true
 
-  # Private DNS resolves this endpoint VPC-wide, so DB-subnet ENIs reach it
-  # through the ECS-subnet interface — no need for a second subnet per AZ.
+  # Lets ECS tasks and the RDS Proxy fetch credentials from Secrets Manager without
+  # a public route. Private DNS resolves VPC-wide, so DB-subnet ENIs (RDS Proxy)
+  # reach it through the ECS-subnet interface — no second subnet per AZ needed.
   SecretsManagerEndpoint:
     Type: AWS::EC2::VPCEndpoint
     Properties:
