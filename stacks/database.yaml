@@ -139,13 +139,13 @@ Resources:
       Auth:
         - AuthScheme: SECRETS
           SecretArn: !Ref DBSecret
-          IAMAuth: DISABLED
+          IAMAuth: REQUIRED
       VpcSubnetIds:
         - !Ref DBSubnet1Id
         - !Ref DBSubnet2Id
       VpcSecurityGroupIds:
         - !Ref RDSProxySecurityGroupId
-      RequireTLS: false
+      RequireTLS: true
       Tags:
         - Key: Name
           Value: !Sub '${Environment}-todo-app-proxy'
