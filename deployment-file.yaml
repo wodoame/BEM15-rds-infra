@@ -1,7 +1,7 @@
 template-file-path: root-stack.yaml
 parameters:
   GithubOrg: wodoame
-  GithubAppRepo: BEM15-todo-app
+  GithubAppRepo: BEM15-rds-app
   Environment: production
   TemplatesBucketName: bem15-rds-infra-stacks
 tags:
