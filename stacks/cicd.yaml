@@ -1,4 +1,4 @@
-AWSTemplateFormatVersion: '2010-09-09'
+AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   CI/CD stack - S3 artifact bucket, CodeDeploy blue/green application and
   deployment group, CodePipeline (ECR image source + S3 deploy bundle source),
@@ -42,7 +42,6 @@ Parameters:
     Description: GitHub Actions IAM role that uploads the deploy bundle to the artifact bucket
 
 Resources:
-
   # ── Artifact Bucket ───────────────────────────────────────────────────────────
 
   ArtifactBucket:
@@ -67,7 +66,7 @@ Resources:
               NoncurrentDays: 30
       Tags:
         - Key: Name
-          Value: !Sub '${Environment}-todo-app-artifacts'
+          Value: !Sub "${Environment}-todo-app-artifacts"
         - Key: Environment
           Value: !Ref Environment
         - Key: ManagedBy
@@ -78,7 +77,7 @@ Resources:
     Properties:
       Bucket: !Ref ArtifactBucket
       PolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           - Sid: AllowGitHubActionsUpload
             Effect: Allow
@@ -90,21 +89,21 @@ Resources:
               - s3:GetBucketLocation
             Resource:
               - !GetAtt ArtifactBucket.Arn
-              - !Sub '${ArtifactBucket.Arn}/*'
+              - !Sub "${ArtifactBucket.Arn}/*"
 
   # ── CodeDeploy ────────────────────────────────────────────────────────────────
 
   CodeDeployApp:
     Type: AWS::CodeDeploy::Application
     Properties:
-      ApplicationName: !Sub '${Environment}-todo-app'
+      ApplicationName: !Sub "${Environment}-todo-app"
       ComputePlatform: ECS
 
   DeploymentGroup:
     Type: AWS::CodeDeploy::DeploymentGroup
     Properties:
       ApplicationName: !Ref CodeDeployApp
-      DeploymentGroupName: !Sub '${Environment}-todo-app-dg'
+      DeploymentGroupName: !Sub "${Environment}-todo-app-dg"
       ServiceRoleArn: !Ref CodeDeployRoleArn
       DeploymentConfigName: CodeDeployDefault.ECSAllAtOnce
       DeploymentStyle:
@@ -113,7 +112,7 @@ Resources:
       BlueGreenDeploymentConfiguration:
         TerminateBlueInstancesOnDeploymentSuccess:
           Action: TERMINATE
-          TerminationWaitTimeInMinutes: 5
+          TerminationWaitTimeInMinutes: 1
         DeploymentReadyOption:
           ActionOnTimeout: CONTINUE_DEPLOYMENT
       ECSServices:
@@ -133,7 +132,7 @@ Resources:
   Pipeline:
     Type: AWS::CodePipeline::Pipeline
     Properties:
-      Name: !Sub '${Environment}-todo-app-pipeline'
+      Name: !Sub "${Environment}-todo-app-pipeline"
       RoleArn: !Ref CodePipelineRoleArn
       ArtifactStore:
         Type: S3
@@ -146,7 +145,7 @@ Resources:
                 Category: Source
                 Owner: AWS
                 Provider: ECR
-                Version: '1'
+                Version: "1"
               Configuration:
                 RepositoryName: !Ref ECRRepositoryName
                 ImageTag: latest
@@ -158,7 +157,7 @@ Resources:
                 Category: Source
                 Owner: AWS
                 Provider: S3
-                Version: '1'
+                Version: "1"
               Configuration:
                 S3Bucket: !Ref ArtifactBucket
                 S3ObjectKey: deploy/deploy-bundle.zip
@@ -173,7 +172,7 @@ Resources:
                 Category: Deploy
                 Owner: AWS
                 Provider: CodeDeployToECS
-                Version: '1'
+                Version: "1"
               Configuration:
                 ApplicationName: !Ref CodeDeployApp
                 DeploymentGroupName: !Ref DeploymentGroup
@@ -193,7 +192,7 @@ Resources:
   ECRPushRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub '${Environment}-todo-app-ecr-push'
+      Name: !Sub "${Environment}-todo-app-ecr-push"
       Description: Trigger CodePipeline on successful ECR image push
       EventPattern:
         source:
@@ -212,11 +211,10 @@ Resources:
       State: ENABLED
       Targets:
         - Id: TriggerPipeline
-          Arn: !Sub 'arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${Pipeline}'
+          Arn: !Sub "arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${Pipeline}"
           RoleArn: !Ref EventBridgeRoleArn
 
 Outputs:
-
   PipelineName:
     Value: !Ref Pipeline
 
