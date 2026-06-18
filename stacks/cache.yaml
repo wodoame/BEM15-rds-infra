@@ -22,6 +22,7 @@ Parameters:
 
 Resources:
 
+  # Subnet pool ElastiCache may place nodes in — the two private cache-tier subnets (10.0.31/32.0/24).
   CacheSubnetGroup:
     Type: AWS::ElastiCache::SubnetGroup
     Properties:
@@ -37,6 +38,8 @@ Resources:
         - Key: ManagedBy
           Value: CloudFormation
 
+  # Single-node Redis cache (no replicas/HA — a ReplicationGroup would be needed for that).
+  # Reachable only from the ECS tier on 6379; accelerates read-heavy todo queries.
   RedisCluster:
     Type: AWS::ElastiCache::CacheCluster
     Properties:
