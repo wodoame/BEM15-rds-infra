@@ -120,7 +120,6 @@ Resources:
         GithubOrg: !Ref GithubOrg
         GithubAppRepo: !Ref GithubAppRepo
         ECRRepositoryArn: !GetAtt ECRStack.Outputs.RepositoryArn
-        DBSecretArn: !GetAtt DatabaseStack.Outputs.DBSecretArn
       Tags:
         - Key: Project
           Value: bem15-todo-app
@@ -146,7 +145,7 @@ Resources:
         RDSProxyEndpoint: !GetAtt DatabaseStack.Outputs.ProxyEndpoint
         DBPort: !GetAtt DatabaseStack.Outputs.DBPort
         DBName: !GetAtt DatabaseStack.Outputs.DBName
-        DBSecretArn: !GetAtt DatabaseStack.Outputs.DBSecretArn
+        DBUsername: !GetAtt DatabaseStack.Outputs.DBUsername
         RedisEndpoint: !GetAtt CacheStack.Outputs.RedisEndpoint
         RedisPort: !GetAtt CacheStack.Outputs.RedisPort
         ECSTaskExecutionRoleArn: !GetAtt IAMStack.Outputs.ECSTaskExecutionRoleArn

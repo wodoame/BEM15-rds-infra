@@ -17,9 +17,6 @@ Parameters:
   ECRRepositoryArn:
     Type: String
 
-  DBSecretArn:
-    Type: String
-
 Resources:
 
   # ── GitHub OIDC Provider ──────────────────────────────────────────────────────
@@ -91,14 +88,8 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
-      Policies:
-        - PolicyName: SecretsAccess
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action: secretsmanager:GetSecretValue
-                Resource: !Ref DBSecretArn
+      # No SecretsAccess policy: the task definition injects no secret values.
+      # The app uses IAM auth to RDS Proxy; username/dbname are plain env vars.
       Tags:
         - Key: Environment
           Value: !Ref Environment

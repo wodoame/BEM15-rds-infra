@@ -103,6 +103,10 @@ Resources:
 
   # ── RDS Proxy ─────────────────────────────────────────────────────────────────
 
+  # NOTE: This role lives here, not in iam.yaml, to avoid a circular dependency.
+  # Its policy grants access to DBSecret and it is consumed by DBProxy (both in
+  # this stack). Moving it to iam.yaml would force iam to import DBSecretArn to
+  # scope the policy, while database imports the role ARN for DBProxy — a cycle.
   RDSProxyRole:
     Type: AWS::IAM::Role
     Properties:
@@ -181,6 +185,9 @@ Outputs:
 
   DBName:
     Value: !Ref DBName
+
+  DBUsername:
+    Value: !Ref DBUsername
 
   DBSecretArn:
     Description: ARN of the Secrets Manager secret containing DB credentials

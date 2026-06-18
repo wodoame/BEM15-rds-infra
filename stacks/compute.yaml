@@ -42,7 +42,7 @@ Parameters:
   DBName:
     Type: String
 
-  DBSecretArn:
+  DBUsername:
     Type: String
 
   RedisEndpoint:
@@ -184,15 +184,16 @@ Resources:
               Value: !Ref DBPort
             - Name: DB_NAME
               Value: !Ref DBName
+            - Name: DB_USERNAME
+              Value: !Ref DBUsername
             - Name: REDIS_HOST
               Value: !Ref RedisEndpoint
             - Name: REDIS_PORT
               Value: !Ref RedisPort
-          Secrets:
-            - Name: DB_USERNAME
-              ValueFrom: !Sub '${DBSecretArn}:username::'
-            - Name: DB_PASSWORD
-              ValueFrom: !Sub '${DBSecretArn}:password::'
+          # No Secrets block: the app authenticates to RDS Proxy via IAM auth
+          # (rds-db:connect), minting a short-lived token as the DB password at
+          # runtime. The username and dbname are non-secret identifiers passed
+          # as plain env vars, so nothing in the task reads the secret.
           LogConfiguration:
             LogDriver: awslogs
             Options:
