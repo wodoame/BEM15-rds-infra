@@ -351,6 +351,11 @@ Resources:
 
   # ── VPC Endpoint Security Group ───────────────────────────────────────────────
 
+  # NOTE: This SG lives here, not in security.yaml, to avoid a circular dependency.
+  # The interface endpoints below consume it, and security.yaml already depends on
+  # this stack (it imports VpcId) — moving the SG would make network import from
+  # security too, a cycle. For the same reason ingress is by VPC CIDR rather than a
+  # reference to the ECS SG (which lives in security.yaml). network has no deps.
   VpcEndpointSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
