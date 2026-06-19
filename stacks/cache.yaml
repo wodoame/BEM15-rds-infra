@@ -38,23 +38,17 @@ Resources:
         - Key: ManagedBy
           Value: CloudFormation
 
-  # Redis replication group: one primary + one replica, placed in separate AZs via the
-  # two-AZ subnet group. Multi-AZ with automatic failover gives HA, and a replica in each
-  # AZ lets read-heavy traffic be served from a same-AZ node (the app routes reads via
-  # Lettuce ReadFrom.LOWEST_LATENCY). Reachable only from the ECS tier on 6379.
-  RedisReplicationGroup:
-    Type: AWS::ElastiCache::ReplicationGroup
+  # Single-node Redis cache (no replicas/HA — a ReplicationGroup would be needed for that).
+  # Reachable only from the ECS tier on 6379; accelerates read-heavy todo queries.
+  RedisCluster:
+    Type: AWS::ElastiCache::CacheCluster
     Properties:
-      ReplicationGroupId: !Sub '${Environment}-todo-redis'
-      ReplicationGroupDescription: Redis cache for todo-app (primary + cross-AZ replica)
+      ClusterName: !Sub '${Environment}-todo-redis'
       Engine: redis
       CacheNodeType: !Ref CacheNodeType
-      NumCacheClusters: 2
-      AutomaticFailoverEnabled: true
-      MultiAZEnabled: true
-      Port: 6379
+      NumCacheNodes: 1
       CacheSubnetGroupName: !Ref CacheSubnetGroup
-      SecurityGroupIds:
+      VpcSecurityGroupIds:
         - !Ref ElastiCacheSecurityGroupId
       Tags:
         - Key: Name
@@ -67,9 +61,9 @@ Resources:
 Outputs:
 
   RedisEndpoint:
-    Description: Redis primary endpoint address (writes; reads routed to replicas by the client)
-    Value: !GetAtt RedisReplicationGroup.PrimaryEndPoint.Address
+    Description: Redis cluster endpoint address
+    Value: !GetAtt RedisCluster.RedisEndpoint.Address
 
   RedisPort:
-    Description: Redis primary endpoint port
-    Value: !GetAtt RedisReplicationGroup.PrimaryEndPoint.Port
+    Description: Redis cluster port
+    Value: !GetAtt RedisCluster.RedisEndpoint.Port
