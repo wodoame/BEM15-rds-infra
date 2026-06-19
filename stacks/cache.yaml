@@ -45,10 +45,7 @@ Resources:
   RedisReplicationGroup:
     Type: AWS::ElastiCache::ReplicationGroup
     Properties:
-      # Distinct from the legacy single-node cluster id (${Environment}-todo-redis):
-      # on the cluster->replication-group switch CloudFormation creates this before
-      # deleting the old node, and ElastiCache rejects a duplicate identifier.
-      ReplicationGroupId: !Sub '${Environment}-todo-redis-rg'
+      ReplicationGroupId: !Sub '${Environment}-todo-redis'
       ReplicationGroupDescription: Redis cache for todo-app (primary + cross-AZ replica)
       Engine: redis
       CacheNodeType: !Ref CacheNodeType
